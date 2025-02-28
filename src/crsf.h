@@ -3,6 +3,8 @@
 
 #include <telemetry.h>
 
+#define UART_SYNC       0xC8
+
 // Device addresses
 #define ADDR_BROADCAST  0x00  //  Broadcast address
 #define ADDR_USB        0x10  //  USB Device
@@ -49,12 +51,24 @@
 #define TYPE_RADIO_ID         0x3A
 
 // Frame Subtype
-#define UART_SYNC                      0xC8
+#define ACK_SUBCMD                     0xFF
+// Command ID Subcommands
+#define GENERAL_SUBCMD                 0x0A
+#define   SUBCMD_SPD_PROPOSAL            0x70
+#define   SUBCMD_SPD_RESPONSE            0x71
+// Radio ID Subcommands
 #define CRSF_SUBCOMMAND                0x10
-#define COMMAND_MODEL_SELECT_ID        0x05
+#define   COMMAND_MODEL_SELECT_ID        0x05
 
 #define TELEMETRY_RX_PACKET_SIZE   64
 #define CRSF_MAX_FIXEDID          63
+
+enum {
+    PROTO_OPTS_BITRATE,
+    PROTO_OPTS_HIDDEN,
+    LAST_PROTO_OPT,
+};
+ctassert(LAST_PROTO_OPT <= NUM_PROTO_OPTS, too_many_protocol_opts);
 
 #if SUPPORT_CRSF_CONFIG
 
@@ -119,7 +133,9 @@ typedef struct {
     u8 id;                // Parameter number (starting from 1)
     u8 parent;            // Parent folder parameter number of the parent folder, 0 means root
     enum data_type type;  // (Parameter type definitions and hidden bit)
-    u8 hidden;            // set if hidden
+    volatile u8 hidden:1; // set if hidden
+    volatile u8 loaded:1; // clear to force reload
+    u8 lines_per_row:2;   // GUI optimization
     char *name;           // Null-terminated string
     void *value;          // size depending on data type
 
@@ -141,6 +157,8 @@ typedef struct {
         char *info;
         char *unit;         // Unit ( Null-terminated string / not sent for type string and folder )
     } s;
+    int parent_row_idx;   // GUI optimization
+    int child_row_idx;    // GUI optimization
 } crsf_param_t;
 
 extern crsf_device_t crsf_devices[CRSF_MAX_DEVICES];
@@ -159,11 +177,14 @@ void CRSF_send_command(crsf_param_t *param, enum cmd_status status);
 u8 CRSF_send_model_id(u8 fixed_id);
 u32 CRSF_read_timeout();
 void CRSF_get_elrs();
-void protocol_read_param(u8 device_idx, crsf_param_t *param);
-void protocol_set_param(u8 value);
+void protocol_read_params(u8 device_idx, crsf_param_t param[]);
+void protocol_set_param(crsf_param_t *param);
 void protocol_module_type(module_type_t type);
 u8 protocol_module_is_elrs();
 u8 protocol_elrs_is_armed();
+u8 CRSF_speed_response(u8 accept, usart_callback_t tx_callback);
+u8 CRSF_speed_proposal(u32 bitrate);
+u8 CRSF_command_ack(u8 cmd_id, u8 sub_cmd_id, u8 accept);
 
 #endif  // SUPPORT_CRSF_CONFIG
 

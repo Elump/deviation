@@ -40,7 +40,6 @@ PROTO_MODULES += $(ODIR)/protocol/s-fhss.mod
 PROTO_MODULES += $(ODIR)/protocol/frskyx.mod
 PROTO_MODULES += $(ODIR)/protocol/assan.mod
 PROTO_MODULES += $(ODIR)/protocol/fq777.mod
-PROTO_MODULES += $(ODIR)/protocol/inav.mod
 PROTO_MODULES += $(ODIR)/protocol/q303.mod
 PROTO_MODULES += $(ODIR)/protocol/gw008.mod
 PROTO_MODULES += $(ODIR)/protocol/dm002.mod
@@ -57,7 +56,6 @@ PROTO_MODULES += $(ODIR)/protocol/v911s.mod
 PROTO_MODULES += $(ODIR)/protocol/gd00x.mod
 PROTO_MODULES += $(ODIR)/protocol/sbus.mod
 PROTO_MODULES += $(ODIR)/protocol/pxx.mod
-PROTO_MODULES += $(ODIR)/protocol/loli.mod
 PROTO_MODULES += $(ODIR)/protocol/e016h.mod
 PROTO_MODULES += $(ODIR)/protocol/sumd.mod
 ifeq "$(SUPPORT_SCANNER)" "1"
@@ -233,10 +231,6 @@ $(ODIR)/protocol/fq777.mod : $(ODIR)/fq777_nrf24l01.bin
 	@echo Building 'fq777' module
 	/bin/mkdir -p $(ODIR)/protocol/ 2>/dev/null; /bin/cp $< $@
 
-$(ODIR)/protocol/inav.mod : $(ODIR)/inav_nrf24l01.bin
-	@echo Building 'inav' module
-	/bin/mkdir -p $(ODIR)/protocol/ 2>/dev/null; /bin/cp $< $@
-
 $(ODIR)/protocol/q303.mod : $(ODIR)/q303_nrf24l01.bin
 	@echo Building 'q303' module
 	/bin/mkdir -p $(ODIR)/protocol/ 2>/dev/null; /bin/cp $< $@
@@ -299,10 +293,6 @@ $(ODIR)/protocol/sbus.mod : $(ODIR)/sbus_uart.bin
 
 $(ODIR)/protocol/pxx.mod : $(ODIR)/pxxout.bin
 	@echo Building 'pxx' module
-	/bin/mkdir -p $(ODIR)/protocol/ 2>/dev/null; /bin/cp $< $@
-
-$(ODIR)/protocol/loli.mod : $(ODIR)/loli_nrf24l01.bin
-	@echo Building 'loli' module
 	/bin/mkdir -p $(ODIR)/protocol/ 2>/dev/null; /bin/cp $< $@
 
 $(ODIR)/protocol/e016h.mod : $(ODIR)/e016h_nrf24l01.bin

@@ -33,16 +33,33 @@
 #define CRSF_CHANNELS             16
 #define CRSF_PACKET_SIZE          26
 
-static const u32 bitrates[] = { 400000, 1870000, 2250000 };
+volatile uint16_t crcErrorCount;
+static const u32 bitrates[] = { 400000, 1870000, 2000000 };
+static s8 new_bitrate_index = -1;
 static const char * const crsf_opts[] = {
-  _tr_noop("Bit Rate"), "400K", "1.87M", "2.25M", NULL,
+  _tr_noop("Bit Rate"), "400K", "1.87M", "2.00M", NULL,
+  _tr_noop("Show Hidden"), "No", "Yes", NULL,
   NULL
 };
-enum {
-    PROTO_OPTS_BITRATE,
-    LAST_PROTO_OPT,
-};
-ctassert(LAST_PROTO_OPT <= NUM_PROTO_OPTS, too_many_protocol_opts);
+
+// this function called from UART TX DMA send complete ISR
+void set_bitrate(u8 data, u8 status) {
+    (void)data;
+    (void)status;
+    if (new_bitrate_index >= 0) {
+        UART_SetDataRate(bitrates[new_bitrate_index]);
+        Model.proto_opts[PROTO_OPTS_BITRATE] = new_bitrate_index;
+    }
+    new_bitrate_index = -1;
+    UART_TxCallback(NULL);
+}
+
+s8 check_bitrate(u32 rate) {
+    if (rate == bitrates[0]) return 0;
+    if (rate == bitrates[1]) return 1;
+    if (rate == bitrates[2]) return 2;
+    return -1;
+}
 
 
 // crc implementation from CRSF protocol document rev7
@@ -117,26 +134,52 @@ void protocol_module_type(module_type_t type) {
 };
 u8 protocol_module_is_elrs() { return MODULE_IS_ELRS; }
 u8 protocol_elrs_is_armed() { return ELRS_IS_ARMED; }
-void protocol_read_param(u8 device_idx, crsf_param_t *param) {
-    // only protocol parameter is bitrate
-    param->device = device_idx;            // device index of device parameter belongs to
-    param->id = 1;                // Parameter number (starting from 1)
-    param->parent = 0;            // Parent folder parameter number of the parent folder, 0 means root
-    param->type = TEXT_SELECTION;  // (Parameter type definitions and hidden bit)
-    param->hidden = 0;            // set if hidden
-    param->name = (char*)crsf_opts[0];           // Null-terminated string
-    param->value = "400K\0001.87M\0002.25M";    // must match crsf_opts
-    param->default_value = 0;  // size depending on data type. Not present for COMMAND.
-    param->min_value = 0;        // not sent for string type
-    param->max_value = 2;        // not sent for string type
-    param->changed = 0;           // flag if set needed when edit element is de-selected
-    param->max_str = &((char*)param->value)[11];        // Longest choice length for text select
-    param->u.text_sel = Model.proto_opts[PROTO_OPTS_BITRATE];
+void protocol_read_params(u8 device_idx, crsf_param_t params[]) {
+    // protocol parameters are bitrate and show hidden UI options
+    params[0].device = device_idx;            // device index of device parameter belongs to
+    params[0].id = 1;                // Parameter number (starting from 1)
+    params[0].parent = 0;            // Parent folder parameter number of the parent folder, 0 means root
+    params[0].type = TEXT_SELECTION;  // (Parameter type definitions and hidden bit)
+    params[0].hidden = 0;            // set if hidden
+    params[0].loaded = 1;
+    params[0].name = (char*)crsf_opts[0];           // Null-terminated string
+    params[0].value = "400K\0001.87M\0002.00M";    // must match crsf_opts
+    params[0].default_value = 0;  // size depending on data type. Not present for COMMAND.
+    params[0].min_value = 0;        // not sent for string type
+    params[0].max_value = 2;        // not sent for string type
+    params[0].changed = 0;           // flag if set needed when edit element is de-selected
+    params[0].max_str = &((char*)params[0].value)[11];        // Longest choice length for text select
+    params[0].lines_per_row = 1;
+    params[0].u.text_sel = Model.proto_opts[PROTO_OPTS_BITRATE];
+
+    params[1].device = device_idx;            // device index of device parameter belongs to
+    params[1].id = 2;                // Parameter number (starting from 1)
+    params[1].parent = 0;            // Parent folder parameter number of the parent folder, 0 means root
+    params[1].type = TEXT_SELECTION;  // (Parameter type definitions and hidden bit)
+    params[1].hidden = 0;            // set if hidden
+    params[1].loaded = 1;
+    params[1].name = (char*)crsf_opts[5];           // Null-terminated string
+    params[1].value = "No\000Yes";    // must match crsf_opts
+    params[1].default_value = 0;  // size depending on data type. Not present for COMMAND.
+    params[1].min_value = 0;        // not sent for string type
+    params[1].max_value = 1;        // not sent for string type
+    params[1].changed = 0;           // flag if set needed when edit element is de-selected
+    params[1].max_str = &((char*)params[1].value)[3];        // Longest choice length for text select
+    params[1].lines_per_row = 1;
+    params[1].u.text_sel = Model.proto_opts[PROTO_OPTS_HIDDEN];
 }
 
-void protocol_set_param(u8 value) {
-    Model.proto_opts[PROTO_OPTS_BITRATE] = value;
-    UART_SetDataRate(bitrates[value]);
+void protocol_set_param(crsf_param_t *param) {
+    u8 value = param->u.text_sel;
+    switch(param->id) {
+    case 1:
+        Model.proto_opts[PROTO_OPTS_BITRATE] = value;
+        UART_SetDataRate(bitrates[value]);
+        break;
+    case 2:
+        Model.proto_opts[PROTO_OPTS_HIDDEN] = value;
+        break;
+    }
 }
 #endif
 
@@ -146,7 +189,7 @@ void protocol_set_param(u8 value) {
 static struct {
     volatile uint8_t    m_get_idx;
     volatile uint8_t    m_put_idx;
-    uint8_t             m_entry[512];  // must be power of 2
+    uint8_t             m_entry[1024];  // must be power of 2
 } receive_buf;
 
 static u8 telemetryRxBuffer[TELEMETRY_RX_PACKET_SIZE];
@@ -278,6 +321,30 @@ static void processCrossfireTelemetryFrame()
       if (telemetryRxBuffer[1] > 5 && getCrossfireTelemetryValue(5, &value, 2))
         set_telemetry(TELEM_CRSF_VERTSPD, value);
       break;
+
+// Leave this mostly disabled for backwards compatibility with TBS XF Transmitter firmware
+// version 6.19.  This 2022 version is the last Public release.  The full code below works
+// with latest Beta release 6.42.  The 6.19 firmware switches to inverted serial when
+// changing bitrates by this command, so will stay disabled until compatible Public release.
+// The code is left in to respond positively if the requested speed is the same as the current
+// speed.  This keeps the XF from repeating the request forever.
+    case TYPE_COMMAND_ID:
+      if (telemetryRxBuffer[3] == ADDR_RADIO && telemetryRxBuffer[5] == GENERAL_SUBCMD) {
+          if (telemetryRxBuffer[6] == SUBCMD_SPD_PROPOSAL) {
+              if (telemetryRxBuffer[7] != 0) break;
+              getCrossfireTelemetryValue(8, &value, 4);
+              new_bitrate_index = check_bitrate((u32)value);
+              if (new_bitrate_index >= 0)
+                  if (new_bitrate_index == Model.proto_opts[PROTO_OPTS_BITRATE])
+                      CRSF_speed_response(1, NULL);
+                  else
+                      CRSF_speed_response(0, NULL); // enable speed change if necessary   CRSF_speed_response(1, set_bitrate);
+              else
+                  CRSF_speed_response(0, NULL);
+
+          }
+      }
+      break;
 #endif
 
     case TYPE_ATTITUDE:
@@ -332,8 +399,8 @@ static void processCrossfireTelemetryData() {
         data = CBUF_Pop(receive_buf);
 
         if (telemetryRxBufferCount == 0) {
-            if (data != ADDR_RADIO) continue;
-            telemetryRxBuffer[telemetryRxBufferCount++] = data;
+            if (data == ADDR_RADIO || data == ADDR_BROADCAST || data == UART_SYNC)
+                telemetryRxBuffer[telemetryRxBufferCount++] = data;
             continue;
         }
 
@@ -355,8 +422,10 @@ static void processCrossfireTelemetryData() {
         
         if (telemetryRxBufferCount >= length+2) {
             if (checkCrossfireTelemetryFrameCRC()) {
-                if (telemetryRxBuffer[2] < TYPE_PING_DEVICES || telemetryRxBuffer[2] == TYPE_RADIO_ID) {
-                    processCrossfireTelemetryFrame();     // Broadcast frame
+                if (telemetryRxBuffer[2] < TYPE_PING_DEVICES
+                 || telemetryRxBuffer[2] == TYPE_RADIO_ID
+                 || telemetryRxBuffer[2] == TYPE_COMMAND_ID) {
+                    processCrossfireTelemetryFrame();
 #if SUPPORT_CRSF_CONFIG
                     // wait for telemetry running before sending model id
                     if (model_id_send) {
